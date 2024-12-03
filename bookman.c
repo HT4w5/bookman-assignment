@@ -23,7 +23,22 @@
 #define MAX_CMD_LEN 256
 #define MAX_LISTNAME_LEN 256
 #define MAX_BOOKNAME_LEN 256
+#define MAX_CMD_TOKENS 5
 #define SNMAP_SIZE 10007
+
+typedef struct SNMapNode
+{
+    unsigned int sn;
+    struct SNMapNode *next;
+} snmap_node_t;
+
+/**
+ * Hash map to query book by sn.
+ */
+typedef struct SNMap
+{
+    snmap_node_t *map[SNMAP_SIZE];
+} snmap_t;
 
 /**
  * book_t: Linked list node representing a book entry.
@@ -52,20 +67,6 @@ typedef struct BookList
     book_t *head;
     snmap_t *snmap;
 } blist_t;
-
-typedef struct SNMapNode
-{
-    unsigned int sn;
-    struct SNMapNode *next;
-} snmap_node_t;
-
-/**
- * Hash map to query book by sn.
- */
-typedef struct SNMap
-{
-    snmap_node_t *map[SNMAP_SIZE];
-} snmap_t;
 
 // Universal functions.
 void error_die(const char *msg);
@@ -108,24 +109,299 @@ int main(void)
         printf("\n");
     }
 
-    printf("Input h for help\n");
+    printf("Input help for help\n");
     printf("\n");
 
     // Interactive loop.
-    char cmd[MAX_CMD_LEN + 1];
+    char buf[MAX_CMD_LEN + 1];
+    char *cmd[MAX_CMD_TOKENS + 1];
+    int ntoken;
+    char *token;
+    char exit = 0;
     while (1)
     {
         // Read command.
         printf("(%s)> ", booklist->name);
-        if (fgets(cmd, sizeof(cmd), stdin) == NULL)
+        if (fgets(buf, sizeof(buf), stdin) == NULL)
         {
             error_die("Error reading command");
         }
         // Null terminate.
-        cmd[strcspn(cmd, "\n")] = '\0';
+        buf[strcspn(buf, "\n")] = '\0';
         // Parse command.
-        int arg_c = 0;
-        char args[5][MAX_CMD_LEN + 1];
+        ntoken = 0;
+        token = strtok(buf, " ");
+        exit = 0;
+        // Seperate command into tokens.
+        while (token != NULL)
+        {
+            cmd[ntoken] = token;
+            ntoken++;
+            token = strtok(NULL, " ");
+        }
+        // Determine command.
+        if (strcmp(cmd[0], "help") == 0)
+        {
+            // Print help message.
+            printf("\nHelp:\n\n");
+
+            printf("  Modification\n");
+            printf("   add [SN] [NAME] [PRICE] [QUANTITY]        add a new entry\n");
+            printf("   del [SN]                                  delete an entry\n");
+            printf("   mod [name|price|quantity] [SN] [VALUE]    modify specified property of an entry\n");
+            printf("   modall [SN] [NAME] [PRICE] [QUANTITY]     modify all properties of an entry\n\n");
+
+            printf("  Query\n");
+            printf("   query [name|price|quantity] [SN]          query specified property of an entry\n");
+            printf("   query all [SN]                            query all properties of an entry\n");
+            printf("   queryall                                  query all properties of all entries\n");
+            printf("   sort [name|price] [a|d]                   sort entries by name|price in acsending|decsending order\n\n");
+
+            printf("  Transaction\n");
+            printf("   sell [SN] [QUANTITY]                      sell specified quantity of specified entry\n\n");
+
+            printf("  Save & Exit\n");
+            printf("   write                                     save modified data to file\n");
+            printf("   quit                                      exit without saving\n\n");
+
+            printf("  Misc\n");
+            printf("   help                                      print help message\n\n");
+        }
+        else if (strcmp(cmd[0], "add") == 0) // Add book.
+        {
+            if (ntoken != 5)
+            {
+                printf("Invalid command\n");
+                continue;
+            }
+            // Add new book.
+            book_t newbook;
+            newbook.name = cmd[2];
+
+            if (sscanf(cmd[1], "%d", &newbook.sn) <= 0)
+            {
+                printf("Invalid command\n");
+                continue;
+            }
+            if (sscanf(cmd[3], "%d", &newbook.price) <= 0)
+            {
+                printf("Invalid command\n");
+                continue;
+            }
+            if (sscanf(cmd[4], "%d", &newbook.quantity) <= 0)
+            {
+                printf("Invalid command\n");
+                continue;
+            }
+            int opres = 0;
+            opres = blist_op(booklist, &newbook, NEW_BOOK);
+            // Check result.
+            if (opres < 0)
+            {
+                if (opres == BOOK_EXIST)
+                {
+                    printf("Book with same SN already exists\n");
+                    continue;
+                }
+                else if (opres == INVALID_ARG)
+                {
+                    printf("Invalid command\n");
+                    continue;
+                }
+                else if (opres == MAP_INCONSIST)
+                {
+                    printf("Internal error\n");
+                    continue;
+                }
+                else
+                {
+                    printf("Unknown error\n");
+                    continue;
+                }
+            }
+            else
+            {
+                printf("Success\n");
+            }
+        }
+        else if (strcmp(cmd[0], "del") == 0) // Delete book.
+        {
+            if (ntoken != 2)
+            {
+                printf("Invalid command\n");
+                continue;
+            }
+            book_t delbook;
+            if (sscanf(cmd[1], "%d", &delbook.sn) <= 0)
+            {
+                printf("Invalid command\n");
+                continue;
+            }
+            int opres = 0;
+            opres = blist_op(booklist, &delbook, DEL_BOOK);
+            // Check result.
+            if (opres < 0)
+            {
+                if (opres == BOOK_NONEXIST)
+                {
+                    printf("Book doesn't exist\n");
+                    continue;
+                }
+                else if (opres == INVALID_ARG)
+                {
+                    printf("Invalid command\n");
+                    continue;
+                }
+                else if (opres == MAP_INCONSIST)
+                {
+                    printf("Internal error\n");
+                    continue;
+                }
+                else
+                {
+                    printf("Unknown error\n");
+                    continue;
+                }
+            }
+            else
+            {
+                printf("Success\n");
+            }
+        }
+        else if (strcmp(cmd[0], "mod") == 0)
+        {
+            if (ntoken != 4)
+            {
+                printf("Invalid command\n");
+                continue;
+            }
+            book_t modbook;
+            if (sscanf(cmd[2], "%d", &modbook.sn) <= 0)
+            {
+                printf("Invalid command\n");
+                continue;
+            }
+            int opflag;
+            if (strcmp(cmd[1], "name") == 0)
+            {
+                opflag = UPD_NAME;
+                modbook.name = cmd[3];
+            }
+            else if (strcmp(cmd[1], "price") == 0)
+            {
+                opflag = UPD_PRICE;
+                if (sscanf(cmd[3], "%d", &modbook.price) <= 0)
+                {
+                    printf("Invalid command\n");
+                    continue;
+                }
+            }
+            else if (strcmp(cmd[1], "quantity") == 0)
+            {
+                opflag = UPD_QUANT;
+                if (sscanf(cmd[3], "%d", &modbook.quantity) <= 0)
+                {
+                    printf("Invalid command\n");
+                    continue;
+                }
+            }
+            else
+            {
+                printf("Invalid command\n");
+                continue;
+            }
+            int opres = 0;
+            opres = blist_op(booklist, &modbook, opflag);
+            // Check result.
+            if (opres < 0)
+            {
+                if (opres == BOOK_NONEXIST)
+                {
+                    printf("Book doesn't exist\n");
+                    continue;
+                }
+                else if (opres == INVALID_ARG)
+                {
+                    printf("Invalid command\n");
+                    continue;
+                }
+                else if (opres == MAP_INCONSIST)
+                {
+                    printf("Internal error\n");
+                    continue;
+                }
+                else
+                {
+                    printf("Unknown error\n");
+                    continue;
+                }
+            }
+            else
+            {
+                printf("Success\n");
+            }
+        }
+        else if (strcmp(cmd[0], "modall") == 0)
+        {
+            if (ntoken != 5)
+            {
+                printf("Invalid command\n");
+                continue;
+            }
+            book_t modbook;
+            if (sscanf(cmd[1], "%d", &modbook.sn) <= 0)
+            {
+                printf("Invalid command\n");
+                continue;
+            }
+            int opflag;
+            opflag = UPD_NAME | UPD_PRICE | UPD_QUANT;
+
+            modbook.name = cmd[2];
+
+            if (sscanf(cmd[3], "%d", &modbook.price) <= 0)
+            {
+                printf("Invalid command\n");
+                continue;
+            }
+
+            if (sscanf(cmd[4], "%d", &modbook.quantity) <= 0)
+            {
+                printf("Invalid command\n");
+                continue;
+            }
+
+            int opres = 0;
+            opres = blist_op(booklist, &modbook, opflag);
+            // Check result.
+            if (opres < 0)
+            {
+                if (opres == BOOK_NONEXIST)
+                {
+                    printf("Book doesn't exist\n");
+                    continue;
+                }
+                else if (opres == INVALID_ARG)
+                {
+                    printf("Invalid command\n");
+                    continue;
+                }
+                else if (opres == MAP_INCONSIST)
+                {
+                    printf("Internal error\n");
+                    continue;
+                }
+                else
+                {
+                    printf("Unknown error\n");
+                    continue;
+                }
+            }
+            else
+            {
+                printf("Success\n");
+            }
+        }
     }
 }
 
@@ -372,18 +648,24 @@ void snmap_append(snmap_t *snmap, unsigned int sn)
     {
         if (current->sn == sn)
         {
+            free(new);
             return;
         }
         while (current->next != NULL)
         {
             if (current->sn == sn)
             {
+                free(new);
                 return;
             }
             current = current->next;
         }
+        current->next = new;
     }
-    current->next = new;
+    else
+    {
+        snmap->map[key] = new;
+    }
 }
 
 int snmap_query(snmap_t *snmap, unsigned int sn)
@@ -451,7 +733,7 @@ int save_data(const blist_t *blist, const char *path)
         }
         // Write format identifier.
         errno = 0;
-        if (fprintf("bookman %s\n", VERSION) < 0)
+        if (fprintf(datfile, "bookman %s\n", VERSION) < 0)
         {
             perror(strerror(errno));
             perror("\n");
@@ -459,7 +741,7 @@ int save_data(const blist_t *blist, const char *path)
         }
         // Write list properties.
         errno = 0;
-        if (fprintf("%s %d\n", blist->name, blist->n) < 0)
+        if (fprintf(datfile, "%s %d\n", blist->name, blist->n) < 0)
         {
             perror(strerror(errno));
             perror("\n");
@@ -468,12 +750,12 @@ int save_data(const blist_t *blist, const char *path)
         // Write list data.
         char bookname[MAX_BOOKNAME_LEN + 1];
         book_t buff;
-        buff.name = &bookname;
+        buff.name = (char *)&bookname;
         int opres = 0;
         book_t *current = blist->head;
         while (current != NULL)
         {
-            if (fprintf("%d %s %d %d\n", current->sn, current->name, current->price, current->quantity) < 0)
+            if (fprintf(datfile, "%d %s %d %d\n", current->sn, current->name, current->price, current->quantity) < 0)
             {
                 perror(strerror(errno));
                 perror("\n");
@@ -543,7 +825,7 @@ int read_data(blist_t *blist, const char *path)
     }
     // Check finished. Read data.
     char *listname = (char *)malloc(MAX_LISTNAME_LEN + 1);
-    fscanf("%s %d", listname, blist->n);
+    fscanf(datfile, "%s %d", listname, blist->n);
     blist->name = listname;
     // Read entries.
     book_t buff;
@@ -552,7 +834,7 @@ int read_data(blist_t *blist, const char *path)
     for (int i = 0; i < blist->n; ++i)
     {
         scanf("%d %s %d %d", &buff.sn, bookname, &buff.price, &buff.quantity);
-        blist->name = &bookname;
+        blist->name = (char *)&bookname;
         opres = blist_op(blist, &buff, NEW_BOOK);
         if (opres < 0)
         {
